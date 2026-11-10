@@ -20,9 +20,7 @@ import numpy as np
 from gurobipy import GRB
 
 
-# ---------------------------------------------------------------------------
-# Traffic matrices
-# ---------------------------------------------------------------------------
+# make uniform traffic matrix
 def uniform_tm(n, d):
     """T[i][j] = d/(n-1) for i != j (Part 1)."""
     T = np.full((n, n), d / (n - 1))
@@ -57,9 +55,7 @@ def is_hose(T, d, tol=1e-9):
             and np.all(T.sum(axis=0) <= d + tol))
 
 
-# ---------------------------------------------------------------------------
-# Part 2: best topology for a given traffic matrix (MILP)
-# ---------------------------------------------------------------------------
+# Part 2 - Solve MILP to find the best topology for a given traffic matrix
 def best_topology(T, d, allow_parallel=True, time_limit=None, verbose=False):
     """
     Decision variables
@@ -110,9 +106,7 @@ def best_topology(T, d, allow_parallel=True, time_limit=None, verbose=False):
     return theta.X, links, m
 
 
-# ---------------------------------------------------------------------------
-# Concurrent flow of a FIXED topology (LP) - used to check Part 1 designs
-# ---------------------------------------------------------------------------
+# Concurrent flow of a FIXED topology (LP) - Used to check Part 1 designs
 def concurrent_flow(n, links, T):
     """links: dict (i,j) -> capacity (number of unit links). Returns theta*."""
     N = range(n)
@@ -134,10 +128,7 @@ def concurrent_flow(n, links, T):
     m.optimize()
     return theta.X
 
-
-# ---------------------------------------------------------------------------
 # Part 1 helpers
-# ---------------------------------------------------------------------------
 def circulant(n, jumps):
     """Node i has one link to (i + j) mod n for every jump j."""
     links = {}
@@ -209,60 +200,68 @@ def part1_construction(n, d):
         if distance_profile(n, J) == mp:
             th = concurrent_flow(n, circulant(n, J), T)
             if th >= target - 1e-6:
-                return th, J, True       # meets the upper bound: optimal
+                return th, J, True# meets the upper bound: optimal
     # Step 4: no circulant meets the bound; return the best circulant.
     best = (0.0, None)
     for J in jump_sets:
         L = avg_path_length(n, circulant(n, J))
         if L == float("inf") or 1 / L <= best[0] + 1e-9:
-            continue                     # 1/avg-path bound: cannot win
+            continue# 1/avg-path bound: cannot win
         th = concurrent_flow(n, circulant(n, J), T)
         if th > best[0] + 1e-9:
             best = (th, J)
     return best[0], best[1], False
 
 
-def example_n9_d4():
-    """Part 1 worked example: n = 9, d = 4, J = {1, 2, 3, 6}.
-    Prints the bound, the hop profile from node 0 (C1), the jump usage (C2),
-    the per-link load, the LP throughput, and the J = {1, 2, 3, 4} contrast."""
-    n, d = 9, 4
-    k = (n - 1) // d
-    print(f"n={n}, d={d}, k={k}, upper bound k/(2k-1) = {k}/{2*k-1} = {k/(2*k-1):.4f}")
-    for J in [(1, 2, 3, 6), (1, 2, 3, 4)]:
-        G = nx.DiGraph(list(circulant(n, J)))
-        paths = nx.single_source_shortest_path(G, 0)        # one shortest route per offset
-        hops = {r: len(p) - 1 for r, p in paths.items() if r != 0}
-        usage = {j: 0 for j in J}
-        for r, p in paths.items():
-            for a, b in zip(p, p[1:]):
-                usage[(b - a) % n] += 1
-        H = sum(hops.values())
-        print(f"\nJ = {set(J)}")
-        print(f"  (C1) 1-hop offsets: {sorted(r for r, h in hops.items() if h == 1)}, "
-              f"2-hop offsets: {sorted(r for r, h in hops.items() if h == 2)}, H = {H}")
-        for r in sorted(hops):
-            steps = [(b - a) % n for a, b in zip(paths[r], paths[r][1:])]
-            print(f"     offset {r}: " + " + ".join(map(str, steps)))
-        print(f"  (C2) jump usage: {usage}")
-        print(f"  heaviest link load with these routes = {max(usage.values())} x 0.5*theta "
-              f"= {0.5*max(usage.values())}*theta")
-        print(f"  LP theta (best routing) = {concurrent_flow(n, circulant(n, J), uniform_tm(n, d)):.4f}")
+def explain_jump_set(n, d, J):
+    """Print the (C1)/(C2) check for one circulant C_n(J) under uniform traffic:
+    hop profile from node 0, the jump sum used for each offset, how often each
+    jump is used, the heaviest link load, and the LP throughput."""
+    G = nx.DiGraph(list(circulant(n, J)))
+     # one shortest route per offset
+    paths = nx.single_source_shortest_path(G, 0)
+    hops = {r: len(p) - 1 for r, p in paths.items() if r != 0}
+    usage = {j: 0 for j in J}
+    for p in paths.values():
+        for a, b in zip(p, p[1:]):
+            usage[(b - a) % n] += 1
+    rate = d / (n - 1)
+    print(f"\n  J = {set(J)}")
+    print(f"  (C1) 1-hop offsets: {sorted(r for r, h in hops.items() if h == 1)}, "
+          f"2-hop offsets: {sorted(r for r, h in hops.items() if h == 2)}, "
+          f"H = {sum(hops.values())}")
+    for r in sorted(hops):
+        steps = [(b - a) % n for a, b in zip(paths[r], paths[r][1:])]
+        print(f"     offset {r}: " + " + ".join(map(str, steps)))
+    print(f"  (C2) jump usage: {usage}")
+    print(f"  heaviest link load with these routes = {max(usage.values())} x "
+          f"{rate:g}*theta = {max(usage.values()) * rate:g}*theta")
+    print(f"  LP theta (best routing) = "
+          f"{concurrent_flow(n, circulant(n, J), uniform_tm(n, d)):.4f}")
 
 
 if __name__ == "__main__":
-    #part 1 exampl
-    example_n9_d4()
-
-    # ---------------- Part 1: uniform traffic ----------------
+    # Part 1
     print("Part 1 (uniform TM): construction vs. upper bound")
+    found = {}
     for n, d in [(5, 2), (7, 3), (9, 4), (11, 5), (13, 4), (16, 5), (7, 2), (10, 3)]:
         th, J, opt = part1_construction(n, d)
+        found[n, d] = J
         ring = concurrent_flow(n, circulant(n, range(1, d + 1)), uniform_tm(n, d))
         print(f"  n={n:2d} d={d}: J={J}  theta={th:.4f}  bound={moore_bound(n, d):.4f}"
               f"  {'OPTIMAL' if opt else 'below bound'}  (ring 1..d: {ring:.4f})")
 
-    # ---------------- Part 2: hose model, n = 8, d = 4 ----------------
+    # part 1 example: n = 9, d = 4
+    n, d = 9, 4
+    k = (n - 1) // d
+    print(f"\nPart 1 worked example: n={n}, d={d}, k={k}, "
+          f"bound k/(2k-1) = {k}/{2*k-1} = {k/(2*k-1):.4f}")
+     # the J the search found
+    explain_jump_set(n, d, found[n, d])      
+    # contrast: next d nodes 
+    explain_jump_set(n, d, tuple(range(1, d + 1)))
+
+    # Part 2: hose model, n = 8, d = 4
     n, d = 8, 4
     print("Part 2 (hose model, n=8, d=4): MILP optimum vs. a fixed topology")
     for seed in range(8):
