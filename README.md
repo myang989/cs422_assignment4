@@ -1,3 +1,10 @@
-# cs422_assignment4
+# CS 422 Assignment 4: Maximum Concurrent Flow and Network Design
 
-hi
+## Setup
+```
+pip install gurobipy networkx numpy
+python hw4_topology.py
+```
+
+## Output
+Running the script prints the Part 1 worked example, the Part 1 table (construction vs. bound), and the Part 2 results on 8 random hose-model matrices.
